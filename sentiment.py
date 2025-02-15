@@ -5,7 +5,9 @@ from nltk.sentiment.vader import SentimentIntensityAnalyzer as SIA
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+reddit = praw.Reddit(
 
+)
 
 sia = SIA()
 
