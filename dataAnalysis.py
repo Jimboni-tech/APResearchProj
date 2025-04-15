@@ -2,116 +2,115 @@ import pandas as pd
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import matplotlib.pyplot as plt
 import seaborn as sns
+from statsmodels.tsa.stattools import grangercausalitytests
+from statsmodels.tsa.stattools import ccf
 
-# Load Reddit data from CSV
-reddit_df = pd.read_csv('Data/BitcoinSubmissions.csv')
-
-reddit_df['date'] = pd.to_datetime(reddit_df['date'])
-
-
-analyzer = SentimentIntensityAnalyzer()
-
-# Function to calculate sentiment score
-'''def get_sentiment_score(text):
-    if isinstance(text, str):  # Check if the text is a string
-        return analyzer.polarity_scores(text)['compound']
-    
-    return 0  # Return 0 for non-string or empty content
-
-reddit_df['submission_sentiment'] = reddit_df['submission'].apply(get_sentiment_score)
-reddit_df['title_sentiment'] = reddit_df['title'].apply(get_sentiment_score)
+volatility_df = pd.read_csv('Data/bitcoin_volatility.csv')
 
 
-sentiment_df = reddit_df[['date', 'submission_sentiment', 'title_sentiment']].copy()
-
-sentiment_df = sentiment_df.groupby('date').mean().reset_index()
-
-sentiment_df['sentiment'] = sentiment_df[['submission_sentiment', 'title_sentiment']].mean(axis=1)
-sentiment_df = sentiment_df[['date', 'sentiment']]
-sentiment_df.to_csv('Data/sentiment_data.csv', index=False)'''
-
-bitcoin_df = pd.read_csv('Data/BitcoinPriceData.csv', delimiter=';')
-bitcoin_df['timeOpen'] = pd.to_datetime(bitcoin_df['timeOpen'])
 sentiment_df = pd.read_csv('Data/sentiment_data.csv')
+
+
+print(volatility_df.columns)
+print(sentiment_df.columns)
+volatility_df['date'] = pd.to_datetime(volatility_df['date'])
 sentiment_df['date'] = pd.to_datetime(sentiment_df['date'])
 
+merged_df = pd.merge(
+    volatility_df,
+    sentiment_df,
+    on='date',
+    how='outer'  
+)
 
-bitcoin_df['timeOpen'] = bitcoin_df['timeOpen'].dt.tz_localize(None)
+merged_df = merged_df.sort_values('date').reset_index(drop=True)
+cleaned_df = merged_df.dropna()
+print(cleaned_df.head())
 
 
-merged_df = pd.merge(sentiment_df, bitcoin_df, left_on='date', right_on='timeOpen', how='inner')
+pearson_corr = cleaned_df['submission_sentiment'].corr(cleaned_df['parkinson_vol'])
+print(f"Pearson Correlation: {pearson_corr:.3f}")
 
-#Display the merged DataFrame
-print(merged_df.head())
-print(bitcoin_df.head())
-print(sentiment_df.head())
-# Plot sentiment over time
-plt.figure(figsize=(12, 6))
-sns.lineplot(x='date', y='sentiment', data=sentiment_df, marker='o')
-plt.title('Reddit Submission Sentiment Over Time')
-plt.xlabel('Date')
-plt.ylabel('Sentiment Score')
-plt.grid(True)
-plt.show()
+spearman_corr = cleaned_df['submission_sentiment'].corr(cleaned_df['parkinson_vol'], method='spearman')
+print(f"Spearman Correlation: {spearman_corr:.3f}")
 
-# Plot sentiment vs. Bitcoin closing price
-plt.figure(figsize=(10, 6))
-sns.scatterplot(x='sentiment', y='close', data=merged_df)
-plt.title('Sentiment vs. Bitcoin Closing Price')
-plt.xlabel('Sentiment Score')
-plt.ylabel('Bitcoin Closing Price')
-plt.grid(True)
-plt.show()
 
-# Calculate correlation
-correlation = merged_df['sentiment'].corr(merged_df['close'])
-print(f"Correlation between sentiment and Bitcoin closing price: {correlation:.2f}")
+granger_test = grangercausalitytests(cleaned_df[['parkinson_vol', 'submission_sentiment']], maxlag=7)
+granger_test_reverse = grangercausalitytests(
+    cleaned_df[['submission_sentiment', 'parkinson_vol']], maxlag=7
+)
 
-# 3. New: Dual-axis plot of Sentiment and Bitcoin Price over time
+
+# Drop rows with missing sentiment (optional but good practice)
+
+# Get sentiment range
+min_sentiment = sentiment_df['submission_sentiment'].min()
+max_sentiment = sentiment_df['submission_sentiment'].max()
+print(min_sentiment, max_sentiment)
+
+print("Summary Statistics for Sentiment:")
+print(sentiment_df['submission_sentiment'].describe())
+
+# Check for skewness
+skewness = sentiment_df['submission_sentiment'].skew()
+print(f"\nSkewness: {skewness:.3f}")
+
+# Classify sentiment buckets
+sentiment_df['sentiment_class'] = pd.cut(sentiment_df['submission_sentiment'], 
+                                bins=[-1, -0.05, 0.05, 1], 
+                                labels=['Negative', 'Neutral', 'Positive'])
+
+
+
+
+
+'''
 fig, ax1 = plt.subplots(figsize=(12, 6))
 ax1.set_xlabel('Date')
 ax1.set_ylabel('Sentiment Score', color='tab:blue')
-ax1.plot(merged_df['date'], merged_df['sentiment'], color='tab:blue', marker='o', label='Sentiment')
+ax1.plot(merged_df['date'], merged_df['submission_sentiment'], color='tab:blue', marker='o', label='Sentiment')
 ax1.tick_params(axis='y', labelcolor='tab:blue')
 ax2 = ax1.twinx()
-ax2.set_ylabel('Bitcoin Closing Price', color='tab:orange')
-ax2.plot(merged_df['date'], merged_df['close'], color='tab:orange', marker='o', label='Bitcoin Price')
+ax2.set_ylabel('Bitcoin Volatility', color='tab:orange')
+ax2.plot(merged_df['date'], merged_df['parkinson_vol'], color='tab:orange', marker='o', label='Bitcoin Price')
 ax2.tick_params(axis='y', labelcolor='tab:orange')
 plt.title('Sentiment and Bitcoin Price Over Time')
 fig.tight_layout()
 plt.grid(True)
 plt.show()
 
-# 4. New: Rolling average (7-day) of Sentiment and Price
-merged_df['sentiment_roll'] = merged_df['sentiment'].rolling(window=7, min_periods=1).mean()
-merged_df['close_roll'] = merged_df['close'].rolling(window=7, min_periods=1).mean()
+cleaned_df['rolling_corr'] = cleaned_df['submission_sentiment'].rolling(window=30).corr(cleaned_df['parkinson_vol'])
 plt.figure(figsize=(12, 6))
-plt.plot(merged_df['date'], merged_df['sentiment_roll'], label='7-Day Rolling Sentiment', color='blue')
-plt.plot(merged_df['date'], merged_df['close_roll'] / merged_df['close_roll'].max(), label='7-Day Rolling Price (Normalized)', color='orange')
-plt.title('7-Day Rolling Average of Sentiment and Normalized Bitcoin Price')
-plt.xlabel('Date')
-plt.ylabel('Value')
+plt.plot(cleaned_df['date'], cleaned_df['rolling_corr'], color='purple')
+plt.title("30-Day Rolling Correlation: Sentiment vs. Volatility")
+plt.xlabel("Date")
+plt.ylabel("Correlation Coefficient")
+plt.axhline(0, linestyle='--', color='gray')  # Zero correlation line
+plt.grid()
+plt.show() 
+
+
+plt.figure(figsize=(12, 6))
+plt.plot(cleaned_df['date'], cleaned_df['submission_sentiment'], label='Sentiment', color='blue', alpha=0.7)
+plt.plot(cleaned_df['date'], cleaned_df['parkinson_vol'], label='Volatility', color='red', alpha=0.7)
+plt.title("Bitcoin Reddit Sentiment vs. Market Volatility (Over Time)")
+plt.xlabel("Date")
+plt.ylabel("Value (Normalized)")
 plt.legend()
-plt.grid(True)
+plt.grid()
 plt.show()
 
-# 5. New: Histogram of Sentiment Scores
-plt.figure(figsize=(10, 6))
-sns.histplot(merged_df['sentiment'], bins=20, kde=True)
-plt.title('Distribution of Sentiment Scores')
-plt.xlabel('Sentiment Score')
-plt.ylabel('Frequency')
-plt.grid(True)
+plt.figure(figsize=(8, 6))
+sns.scatterplot(x='submission_sentiment', y='parkinson_vol', data=cleaned_df, alpha=0.6)
+plt.title("Bitcoin Reddit Sentiment vs. Volatility (Scatter Plot)")
+plt.xlabel("Sentiment Score")
+plt.ylabel("Parkinson Volatility")
 plt.show()
 
-# 6. New: Cross-correlation between Sentiment and Price with lags
-lags = range(-10, 11)  # Check lags from -10 to +10 days
-cross_corr = [merged_df['sentiment'].corr(merged_df['close'].shift(lag)) for lag in lags]
-plt.figure(figsize=(10, 6))
-plt.stem(lags, cross_corr)
-plt.title('Cross-Correlation of Sentiment and Bitcoin Price Across Lags')
-plt.xlabel('Lag (Days)')
-plt.ylabel('Correlation')
-plt.grid(True)
+cross_corr = ccf(cleaned_df['submission_sentiment'], cleaned_df['parkinson_vol'], adjusted=False)
+plt.stem(range(len(cross_corr)), cross_corr)
+plt.title("Lagged Cross-Correlation: Sentiment → Volatility")
+plt.xlabel("Lag (Days)")
+plt.ylabel("Correlation")
 plt.show()
-
+'''

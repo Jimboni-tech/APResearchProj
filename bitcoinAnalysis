@@ -1,0 +1,12 @@
+import pandas as pd
+import numpy as np
+
+bitcoin = pd.read_csv("Data/BitcoinData.csv", delimiter=';')
+bitcoin['timeOpen'] = pd.to_datetime(bitcoin['timeOpen']).dt.tz_localize(None)
+bitcoin['date'] = bitcoin['timeOpen'].dt.strftime('%Y-%m-%d')  # Save dates as strings (YYYY-MM-DD)
+bitcoin['parkinson_vol'] = np.sqrt(1 / (4 * np.log(2))) * np.log(bitcoin['high'] / bitcoin['low'])
+
+
+bitcoin_df = bitcoin[['date', 'parkinson_vol']].copy()
+
+bitcoin_df.to_csv('Data/bitcoin_volatility.csv', index=False, date_format='%Y-%m-%d')
